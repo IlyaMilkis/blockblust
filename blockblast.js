@@ -1,5 +1,5 @@
 // ============================================
-// НАСТРОЙКИ ИГРЫ
+// НАСТРОЙКИ ИГРЫ BLOCK BLAST
 // ============================================
 const CONFIG = {
     BOARD_SIZE: 9,               // Размер поля 9x9
@@ -32,8 +32,8 @@ const CONFIG = {
     ],
     SCORE_PER_LINE: 100,
     COMBO_MULTIPLIER: [1, 1.5, 2, 2.5, 3, 4, 5],
-    INITIAL_TIME: 180000, // 3 минуты на игру
-    LEVEL_UP_LINES: 10    // Каждые 10 линий - новый уровень
+    INITIAL_BLOCKS: 3,          // Сколько фигур показывать для выбора
+    LEVEL_UP_LINES: 10          // Каждые 10 линий - новый уровень
 };
 
 // ============================================
@@ -46,15 +46,13 @@ let gameState = {
     linesCleared: 0,
     gameOver: false,
     paused: false,
-    currentBlocks: [],
-    nextBlocks: [],
+    availableBlocks: [],         // Фигуры, которые можно перетаскивать
     selectedBlock: null,
     dragOffset: { x: 0, y: 0 },
     isDragging: false,
     combo: 0,
     maxCombo: 0,
-    startTime: null,
-    elapsedTime: 0
+    dragStartPos: { x: 0, y: 0 }
 };
 
 // ============================================
@@ -74,7 +72,6 @@ function initGame() {
     gameState.paused = false;
     gameState.combo = 0;
     gameState.maxCombo = 0;
-    gameState.startTime = Date.now();
     
     // Генерируем начальные блоки
     generateNewBlocks();
@@ -82,7 +79,7 @@ function initGame() {
     // Обновляем интерфейс
     updateUI();
     drawBoard();
-    drawNextBlocks();
+    renderAvailableBlocks();
     
     // Скрываем экран Game Over
     document.getElementById('gameOverScreen').style.display = 'none';
@@ -92,17 +89,11 @@ function initGame() {
 // ГЕНЕРАЦИЯ БЛОКОВ
 // ============================================
 function generateNewBlocks() {
-    gameState.currentBlocks = [];
-    gameState.nextBlocks = [];
+    gameState.availableBlocks = [];
     
-    // Создаем 3 текущих блока
-    for (let i = 0; i < 3; i++) {
-        gameState.currentBlocks.push(createRandomBlock());
-    }
-    
-    // Создаем 3 следующих блока
-    for (let i = 0; i < 3; i++) {
-        gameState.nextBlocks.push(createRandomBlock());
+    // Создаем N блоков для выбора
+    for (let i = 0; i < CONFIG.INITIAL_BLOCKS; i++) {
+        gameState.availableBlocks.push(createRandomBlock());
     }
 }
 
@@ -110,19 +101,26 @@ function createRandomBlock() {
     const typeIndex = Math.floor(Math.random() * CONFIG.BLOCK_TYPES.length);
     const colorIndex = Math.floor(Math.random() * CONFIG.COLORS.length);
     
+    const shape = CONFIG.BLOCK_TYPES[typeIndex];
+    const height = shape.length;
+    const width = shape[0].length;
+    
+    // Создаем уникальный ID для блока
+    const id = 'block_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
     return {
-        shape: CONFIG.BLOCK_TYPES[typeIndex],
+        id: id,
+        shape: JSON.parse(JSON.stringify(shape)), // Глубокая копия
         color: CONFIG.COLORS[colorIndex],
-        width: CONFIG.BLOCK_TYPES[typeIndex][0].length,
-        height: CONFIG.BLOCK_TYPES[typeIndex].length,
-        x: 0,
-        y: 0,
-        dragging: false
+        width: width,
+        height: height,
+        originalShape: JSON.parse(JSON.stringify(shape)), // Для сброса
+        rotations: 0
     };
 }
 
 // ============================================
-// ОТРИСОВКА
+// ОТРИСОВКА ИГРОВОГО ПОЛЯ
 // ============================================
 function drawBoard() {
     const canvas = document.getElementById('gameBoard');
@@ -160,14 +158,6 @@ function drawBoard() {
                 drawCell(ctx, x, y, gameState.board[y][x]);
             }
         }
-    }
-    
-    // Рисуем текущие блоки внизу
-    drawCurrentBlocks(ctx);
-    
-    // Рисуем подсказку, если блок выбран
-    if (gameState.selectedBlock && !gameState.isDragging) {
-        drawPlacementHint(ctx);
     }
 }
 
@@ -212,132 +202,292 @@ function drawCell(ctx, x, y, color) {
     );
 }
 
-function drawCurrentBlocks(ctx) {
-    const startY = CONFIG.BOARD_SIZE * CONFIG.CELL_SIZE + 20;
-    const blockSpacing = 160;
+// ============================================
+// ОТОБРАЖЕНИЕ БЛОКОВ ДЛЯ ПЕРЕТАСКИВАНИЯ
+// ============================================
+function renderAvailableBlocks() {
+    const container = document.getElementById('currentBlocksContainer');
+    container.innerHTML = '';
     
-    gameState.currentBlocks.forEach((block, index) => {
-        const startX = 20 + index * blockSpacing;
+    gameState.availableBlocks.forEach((block, index) => {
+        const blockElement = document.createElement('div');
+        blockElement.className = 'draggable-block';
+        blockElement.dataset.blockId = block.id;
+        blockElement.innerHTML = createBlockHTML(block);
         
-        // Фон для блока
-        ctx.fillStyle = 'white';
-        ctx.fillRect(startX - 10, startY - 10, 
-                    block.width * CONFIG.CELL_SIZE + 20, 
-                    block.height * CONFIG.CELL_SIZE + 20);
+        // Добавляем обработчики для перетаскивания
+        setupBlockDrag(blockElement, block);
         
-        ctx.strokeStyle = '#dfe1e5';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(startX - 10, startY - 10, 
-                      block.width * CONFIG.CELL_SIZE + 20, 
-                      block.height * CONFIG.CELL_SIZE + 20);
+        container.appendChild(blockElement);
+    });
+}
+
+function createBlockHTML(block) {
+    // Создаем визуальное представление блока
+    const blockSize = 35;
+    let html = `<div class="block-preview" style="width:${block.width * blockSize}px; height:${block.height * blockSize}px; position:relative;">`;
+    
+    for (let y = 0; y < block.height; y++) {
+        for (let x = 0; x < block.width; x++) {
+            if (block.shape[y][x]) {
+                const left = x * blockSize;
+                const top = y * blockSize;
+                html += `
+                    <div style="
+                        position: absolute;
+                        left: ${left}px;
+                        top: ${top}px;
+                        width: ${blockSize - 2}px;
+                        height: ${blockSize - 2}px;
+                        background: ${block.color};
+                        border-radius: 4px;
+                        box-shadow: inset 0 0 10px rgba(255,255,255,0.3);
+                        border: 2px solid ${darkenColor(block.color, 30)};
+                    "></div>
+                `;
+            }
+        }
+    }
+    
+    html += `</div>`;
+    return html;
+}
+
+function darkenColor(color, percent) {
+    let r = parseInt(color.substring(1, 3), 16);
+    let g = parseInt(color.substring(3, 5), 16);
+    let b = parseInt(color.substring(5, 7), 16);
+
+    r = Math.floor(r * (100 - percent) / 100);
+    g = Math.floor(g * (100 - percent) / 100);
+    b = Math.floor(b * (100 - percent) / 100);
+
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+// ============================================
+// ПЕРЕТАСКИВАНИЕ БЛОКОВ
+// ============================================
+function setupBlockDrag(element, block) {
+    let isDragging = false;
+    let offsetX, offsetY;
+    let clone = null;
+    
+    element.addEventListener('mousedown', startDrag);
+    element.addEventListener('touchstart', startDragTouch);
+    
+    function startDrag(e) {
+        if (gameState.gameOver || gameState.paused) return;
         
-        // Сохраняем позицию для перетаскивания
-        block.x = startX;
-        block.y = startY;
+        e.preventDefault();
+        isDragging = true;
         
-        // Рисуем клетки блока
-        for (let y = 0; y < block.height; y++) {
-            for (let x = 0; x < block.width; x++) {
-                if (block.shape[y][x]) {
-                    const cellX = startX + x * CONFIG.CELL_SIZE;
-                    const cellY = startY + y * CONFIG.CELL_SIZE;
+        const rect = element.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+        
+        gameState.selectedBlock = block;
+        gameState.dragStartPos = { x: e.clientX, y: e.clientY };
+        
+        // Создаем клон для перетаскивания
+        clone = element.cloneNode(true);
+        clone.style.position = 'fixed';
+        clone.style.zIndex = '1000';
+        clone.style.pointerEvents = 'none';
+        clone.style.opacity = '0.8';
+        clone.style.transform = 'scale(1.05)';
+        clone.className = 'draggable-block dragging';
+        
+        document.body.appendChild(clone);
+        updateClonePosition(e);
+        
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', stopDrag);
+    }
+    
+    function startDragTouch(e) {
+        if (gameState.gameOver || gameState.paused) return;
+        
+        e.preventDefault();
+        isDragging = true;
+        
+        const touch = e.touches[0];
+        const rect = element.getBoundingClientRect();
+        offsetX = touch.clientX - rect.left;
+        offsetY = touch.clientY - rect.top;
+        
+        gameState.selectedBlock = block;
+        gameState.dragStartPos = { x: touch.clientX, y: touch.clientY };
+        
+        // Создаем клон для перетаскивания
+        clone = element.cloneNode(true);
+        clone.style.position = 'fixed';
+        clone.style.zIndex = '1000';
+        clone.style.pointerEvents = 'none';
+        clone.style.opacity = '0.8';
+        clone.style.transform = 'scale(1.05)';
+        clone.className = 'draggable-block dragging';
+        
+        document.body.appendChild(clone);
+        updateClonePosition(touch);
+        
+        document.addEventListener('touchmove', onDragTouch);
+        document.addEventListener('touchend', stopDragTouch);
+    }
+    
+    function onDrag(e) {
+        if (!isDragging) return;
+        updateClonePosition(e);
+    }
+    
+    function onDragTouch(e) {
+        if (!isDragging) return;
+        e.preventDefault();
+        updateClonePosition(e.touches[0]);
+    }
+    
+    function updateClonePosition(pos) {
+        if (!clone) return;
+        
+        clone.style.left = (pos.clientX - offsetX) + 'px';
+        clone.style.top = (pos.clientY - offsetY) + 'px';
+        
+        // Проверяем, над полем ли мы
+        const canvas = document.getElementById('gameBoard');
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        if (pos.clientX >= canvasRect.left && pos.clientX <= canvasRect.right &&
+            pos.clientY >= canvasRect.top && pos.clientY <= canvasRect.bottom) {
+            
+            // Показываем подсказку размещения
+            showPlacementHint(pos.clientX, pos.clientY);
+        } else {
+            hidePlacementHint();
+        }
+    }
+    
+    function stopDrag(e) {
+        if (!isDragging) return;
+        
+        isDragging = false;
+        document.removeEventListener('mousemove', onDrag);
+        document.removeEventListener('mouseup', stopDrag);
+        
+        finishDrag(e.clientX, e.clientY);
+    }
+    
+    function stopDragTouch(e) {
+        if (!isDragging) return;
+        
+        isDragging = false;
+        document.removeEventListener('touchmove', onDragTouch);
+        document.removeEventListener('touchend', stopDragTouch);
+        
+        if (e.changedTouches.length > 0) {
+            const touch = e.changedTouches[0];
+            finishDrag(touch.clientX, touch.clientY);
+        }
+    }
+    
+    function finishDrag(clientX, clientY) {
+        // Удаляем клон
+        if (clone) {
+            clone.remove();
+            clone = null;
+        }
+        
+        hidePlacementHint();
+        
+        // Проверяем, куда бросили блок
+        const canvas = document.getElementById('gameBoard');
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        if (clientX >= canvasRect.left && clientX <= canvasRect.right &&
+            clientY >= canvasRect.top && clientY <= canvasRect.bottom) {
+            
+            // Преобразуем координаты в клетки поля
+            const boardX = Math.floor((clientX - canvasRect.left) / CONFIG.CELL_SIZE);
+            const boardY = Math.floor((clientY - canvasRect.top) / CONFIG.CELL_SIZE);
+            
+            // Пытаемся разместить блок
+            if (placeBlock(gameState.selectedBlock, boardX, boardY)) {
+                // Успешно разместили
+                const blockIndex = gameState.availableBlocks.findIndex(b => b.id === gameState.selectedBlock.id);
+                if (blockIndex !== -1) {
+                    gameState.availableBlocks.splice(blockIndex, 1);
                     
-                    ctx.fillStyle = block.color;
-                    ctx.fillRect(cellX + 2, cellY + 2, 
-                                CONFIG.CELL_SIZE - 4, 
-                                CONFIG.CELL_SIZE - 4);
+                    // Если блоки закончились, генерируем новые
+                    if (gameState.availableBlocks.length === 0) {
+                        generateNewBlocks();
+                    }
                     
-                    // Объем
-                    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-                    ctx.fillRect(cellX + 2, cellY + 2, 
-                                CONFIG.CELL_SIZE - 4, 10);
-                    
-                    ctx.fillStyle = 'rgba(0,0,0,0.1)';
-                    ctx.fillRect(cellX + 2, cellY + CONFIG.CELL_SIZE - 12, 
-                                CONFIG.CELL_SIZE - 4, 10);
+                    renderAvailableBlocks();
                 }
             }
         }
         
-        // Подпись "Перетащи на поле"
-        if (!gameState.isDragging) {
-            ctx.fillStyle = '#636e72';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('Перетащи на поле', 
-                        startX + (block.width * CONFIG.CELL_SIZE) / 2, 
-                        startY + block.height * CONFIG.CELL_SIZE + 25);
-        }
-    });
+        gameState.selectedBlock = null;
+        drawBoard();
+    }
 }
 
-function drawNextBlocks() {
-    const canvases = [
-        document.getElementById('nextBlock1'),
-        document.getElementById('nextBlock2'),
-        document.getElementById('nextBlock3')
-    ];
+// ============================================
+// ПОДСКАЗКА РАЗМЕЩЕНИЯ
+// ============================================
+function showPlacementHint(clientX, clientY) {
+    if (!gameState.selectedBlock) return;
     
-    gameState.nextBlocks.forEach((block, index) => {
-        const canvas = canvases[index];
-        const ctx = canvas.getContext('2d');
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Центрируем блок
-        const blockWidth = block.width * 30;
-        const blockHeight = block.height * 30;
-        const startX = (canvas.width - blockWidth) / 2;
-        const startY = (canvas.height - blockHeight) / 2;
-        
-        // Рисуем клетки
-        for (let y = 0; y < block.height; y++) {
-            for (let x = 0; x < block.width; x++) {
-                if (block.shape[y][x]) {
-                    const cellX = startX + x * 30;
-                    const cellY = startY + y * 30;
-                    
-                    ctx.fillStyle = block.color;
-                    ctx.fillRect(cellX + 1, cellY + 1, 28, 28);
-                    
-                    // Объем
-                    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-                    ctx.fillRect(cellX + 1, cellY + 1, 28, 8);
-                    
-                    ctx.fillStyle = 'rgba(0,0,0,0.2)';
-                    ctx.fillRect(cellX + 1, cellY + 21, 28, 8);
-                }
-            }
-        }
-    });
-}
-
-function drawPlacementHint(ctx) {
-    const block = gameState.selectedBlock;
-    const boardX = Math.floor((block.x - block.dragOffset.x) / CONFIG.CELL_SIZE);
-    const boardY = Math.floor((block.y - block.dragOffset.y) / CONFIG.CELL_SIZE);
+    const canvas = document.getElementById('gameBoard');
+    const canvasRect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext('2d');
     
-    if (canPlaceBlock(block, boardX, boardY)) {
-        for (let y = 0; y < block.height; y++) {
-            for (let x = 0; x < block.width; x++) {
-                if (block.shape[y][x]) {
+    // Преобразуем координаты в клетки поля
+    const boardX = Math.floor((clientX - canvasRect.left) / CONFIG.CELL_SIZE);
+    const boardY = Math.floor((clientY - canvasRect.top) / CONFIG.CELL_SIZE);
+    
+    // Проверяем, можно ли разместить здесь
+    const canPlace = canPlaceBlock(gameState.selectedBlock, boardX, boardY);
+    
+    // Перерисовываем поле с подсказкой
+    drawBoard();
+    
+    if (canPlace && boardX >= 0 && boardY >= 0 && 
+        boardX + gameState.selectedBlock.width <= CONFIG.BOARD_SIZE &&
+        boardY + gameState.selectedBlock.height <= CONFIG.BOARD_SIZE) {
+        
+        // Рисуем полупрозрачную подсказку
+        ctx.fillStyle = gameState.selectedBlock.color + '60';
+        
+        for (let y = 0; y < gameState.selectedBlock.height; y++) {
+            for (let x = 0; x < gameState.selectedBlock.width; x++) {
+                if (gameState.selectedBlock.shape[y][x]) {
                     const cellX = (boardX + x) * CONFIG.CELL_SIZE;
                     const cellY = (boardY + y) * CONFIG.CELL_SIZE;
                     
-                    ctx.fillStyle = block.color + '40'; // Полупрозрачный
-                    ctx.fillRect(cellX + 2, cellY + 2, 
-                                CONFIG.CELL_SIZE - 4, 
-                                CONFIG.CELL_SIZE - 4);
+                    ctx.fillRect(
+                        cellX + 2,
+                        cellY + 2,
+                        CONFIG.CELL_SIZE - 4,
+                        CONFIG.CELL_SIZE - 4
+                    );
                     
-                    ctx.strokeStyle = block.color;
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(cellX + 2, cellY + 2, 
-                                 CONFIG.CELL_SIZE - 4, 
-                                 CONFIG.CELL_SIZE - 4);
+                    // Обводка
+                    ctx.strokeStyle = canPlace ? '#4CAF50' : '#F44336';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(
+                        cellX + 2,
+                        cellY + 2,
+                        CONFIG.CELL_SIZE - 4,
+                        CONFIG.CELL_SIZE - 4
+                    );
                 }
             }
         }
     }
+}
+
+function hidePlacementHint() {
+    drawBoard();
 }
 
 // ============================================
@@ -377,32 +527,53 @@ function placeBlock(block, boardX, boardY) {
         }
     }
     
-    // Удаляем использованный блок
-    const blockIndex = gameState.currentBlocks.indexOf(block);
-    if (blockIndex !== -1) {
-        gameState.currentBlocks.splice(blockIndex, 1);
-        
-        // Добавляем новый блок из очереди
-        if (gameState.nextBlocks.length > 0) {
-            gameState.currentBlocks.push(gameState.nextBlocks.shift());
-            gameState.nextBlocks.push(createRandomBlock());
-        }
-    }
-    
     // Проверяем линии
     checkLines();
     
     // Проверяем Game Over
     if (isGameOver()) {
-        endGame();
+        setTimeout(() => endGame(), 500);
     }
     
     return true;
 }
 
+function rotateCurrentBlock() {
+    if (!gameState.selectedBlock) {
+        // Если блок не выбран, вращаем первый доступный
+        if (gameState.availableBlocks.length > 0) {
+            gameState.selectedBlock = gameState.availableBlocks[0];
+        } else {
+            return;
+        }
+    }
+    
+    const block = gameState.selectedBlock;
+    
+    // Вращаем матрицу на 90 градусов
+    const newHeight = block.shape[0].length;
+    const newWidth = block.shape.length;
+    const newShape = [];
+    
+    for (let y = 0; y < newHeight; y++) {
+        newShape[y] = [];
+        for (let x = 0; x < newWidth; x++) {
+            newShape[y][x] = block.shape[newWidth - 1 - x][y];
+        }
+    }
+    
+    block.shape = newShape;
+    block.width = newWidth;
+    block.height = newHeight;
+    block.rotations = (block.rotations + 1) % 4;
+    
+    // Обновляем отображение
+    renderAvailableBlocks();
+    drawBoard();
+}
+
 function checkLines() {
     let linesToClear = [];
-    let cellsToClear = [];
     
     // Проверяем строки
     for (let y = 0; y < CONFIG.BOARD_SIZE; y++) {
@@ -415,9 +586,6 @@ function checkLines() {
         }
         if (full) {
             linesToClear.push({ type: 'row', index: y });
-            for (let x = 0; x < CONFIG.BOARD_SIZE; x++) {
-                cellsToClear.push({ x, y });
-            }
         }
     }
     
@@ -432,9 +600,6 @@ function checkLines() {
         }
         if (full) {
             linesToClear.push({ type: 'col', index: x });
-            for (let y = 0; y < CONFIG.BOARD_SIZE; y++) {
-                cellsToClear.push({ x, y });
-            }
         }
     }
     
@@ -463,7 +628,7 @@ function checkLines() {
         }
         
         // Анимация очистки
-        animateClear(cellsToClear, () => {
+        animateClear(linesToClear, () => {
             // Очищаем линии
             linesToClear.forEach(line => {
                 if (line.type === 'row') {
@@ -480,7 +645,6 @@ function checkLines() {
             // Обновляем интерфейс
             updateUI();
             drawBoard();
-            drawNextBlocks();
         });
     } else {
         // Сбрасываем комбо, если нет линий
@@ -488,101 +652,151 @@ function checkLines() {
     }
 }
 
-function animateClear(cells, callback) {
-    cells.forEach(cell => {
-        const element = document.createElement('div');
-        element.style.position = 'absolute';
-        element.style.left = (cell.x * CONFIG.CELL_SIZE + 15) + 'px';
-        element.style.top = (cell.y * CONFIG.CELL_SIZE + 15) + 'px';
-        element.style.width = '20px';
-        element.style.height = '20px';
-        element.style.background = '#FFD700';
-        element.style.borderRadius = '50%';
-        element.style.animation = 'pop 0.5s forwards';
-        element.style.zIndex = '1000';
-        
-        document.getElementById('gameBoard').parentElement.appendChild(element);
-        
-        setTimeout(() => {
-            element.remove();
-        }, 500);
+function animateClear(linesToClear, callback) {
+    const canvas = document.getElementById('gameBoard');
+    const ctx = canvas.getContext('2d');
+    
+    // Отмечаем клетки для очистки
+    const cellsToClear = [];
+    linesToClear.forEach(line => {
+        if (line.type === 'row') {
+            for (let x = 0; x < CONFIG.BOARD_SIZE; x++) {
+                cellsToClear.push({ x, y: line.index });
+            }
+        } else {
+            for (let y = 0; y < CONFIG.BOARD_SIZE; y++) {
+                cellsToClear.push({ x: line.index, y });
+            }
+        }
     });
     
-    setTimeout(callback, 500);
+    // Анимация мигания
+    let opacity = 1;
+    let direction = -1;
+    let frames = 0;
+    
+    function animate() {
+        frames++;
+        
+        // Рисуем поле
+        drawBoard();
+        
+        // Рисуем мигающие клетки
+        ctx.fillStyle = `rgba(255, 215, 0, ${opacity})`;
+        cellsToClear.forEach(cell => {
+            const cellX = cell.x * CONFIG.CELL_SIZE;
+            const cellY = cell.y * CONFIG.CELL_SIZE;
+            ctx.fillRect(
+                cellX + 2,
+                cellY + 2,
+                CONFIG.CELL_SIZE - 4,
+                CONFIG.CELL_SIZE - 4
+            );
+        });
+        
+        // Изменяем прозрачность
+        opacity += direction * 0.1;
+        if (opacity <= 0.3 || opacity >= 1) {
+            direction *= -1;
+        }
+        
+        if (frames < 20) { // 10 миганий (вперед-назад)
+            requestAnimationFrame(animate);
+        } else {
+            callback();
+        }
+    }
+    
+    animate();
 }
 
 function isGameOver() {
     // Проверяем, можно ли разместить хоть один блок
-    for (const block of gameState.currentBlocks) {
-        for (let y = 0; y <= CONFIG.BOARD_SIZE - block.height; y++) {
-            for (let x = 0; x <= CONFIG.BOARD_SIZE - block.width; x++) {
-                if (canPlaceBlock(block, x, y)) {
-                    return false;
+    for (const block of gameState.availableBlocks) {
+        // Проверяем все возможные положения блока
+        for (let rotation = 0; rotation < 4; rotation++) {
+            let testBlock = { ...block };
+            
+            // Вращаем блок до нужного положения
+            for (let r = 0; r < rotation; r++) {
+                const newHeight = testBlock.shape[0].length;
+                const newWidth = testBlock.shape.length;
+                const newShape = [];
+                
+                for (let y = 0; y < newHeight; y++) {
+                    newShape[y] = [];
+                    for (let x = 0; x < newWidth; x++) {
+                        newShape[y][x] = testBlock.shape[newWidth - 1 - x][y];
+                    }
+                }
+                testBlock.shape = newShape;
+                testBlock.width = newWidth;
+                testBlock.height = newHeight;
+            }
+            
+            // Проверяем все позиции на поле
+            for (let y = 0; y <= CONFIG.BOARD_SIZE - testBlock.height; y++) {
+                for (let x = 0; x <= CONFIG.BOARD_SIZE - testBlock.width; x++) {
+                    if (canPlaceBlock(testBlock, x, y)) {
+                        return false; // Есть куда поставить
+                    }
                 }
             }
         }
     }
-    return true;
-}
-
-function rotateBlock(block) {
-    const newHeight = block.shape[0].length;
-    const newWidth = block.shape.length;
-    const newShape = [];
-    
-    for (let y = 0; y < newHeight; y++) {
-        newShape[y] = [];
-        for (let x = 0; x < newWidth; x++) {
-            newShape[y][x] = block.shape[newWidth - 1 - x][y];
-        }
-    }
-    
-    block.shape = newShape;
-    block.width = newWidth;
-    block.height = newHeight;
+    return true; // Нельзя поставить ни один блок
 }
 
 function showHint() {
-    // Находим лучшую позицию для текущих блоков
-    let bestBlock = null;
-    let bestX = 0;
-    let bestY = 0;
-    
-    for (const block of gameState.currentBlocks) {
-        for (let y = 0; y <= CONFIG.BOARD_SIZE - block.height; y++) {
-            for (let x = 0; x <= CONFIG.BOARD_SIZE - block.width; x++) {
-                if (canPlaceBlock(block, x, y)) {
-                    bestBlock = block;
-                    bestX = x;
-                    bestY = y;
-                    break;
+    // Находим первую доступную позицию для любого блока
+    for (const block of gameState.availableBlocks) {
+        // Проверяем все вращения
+        for (let rotation = 0; rotation < 4; rotation++) {
+            let testBlock = { ...block };
+            
+            // Вращаем блок
+            for (let r = 0; r < rotation; r++) {
+                const newHeight = testBlock.shape[0].length;
+                const newWidth = testBlock.shape.length;
+                const newShape = [];
+                
+                for (let y = 0; y < newHeight; y++) {
+                    newShape[y] = [];
+                    for (let x = 0; x < newWidth; x++) {
+                        newShape[y][x] = testBlock.shape[newWidth - 1 - x][y];
+                    }
+                }
+                testBlock.shape = newShape;
+                testBlock.width = newWidth;
+                testBlock.height = newHeight;
+            }
+            
+            // Ищем позицию
+            for (let y = 0; y <= CONFIG.BOARD_SIZE - testBlock.height; y++) {
+                for (let x = 0; x <= CONFIG.BOARD_SIZE - testBlock.width; x++) {
+                    if (canPlaceBlock(testBlock, x, y)) {
+                        // Подсвечиваем этот блок
+                        const blockElement = document.querySelector(`[data-block-id="${block.id}"]`);
+                        if (blockElement) {
+                            blockElement.style.animation = 'pulse 1s infinite';
+                            blockElement.style.borderColor = '#4CAF50';
+                            
+                            // Убираем анимацию через 3 секунды
+                            setTimeout(() => {
+                                blockElement.style.animation = '';
+                                blockElement.style.borderColor = '';
+                            }, 3000);
+                        }
+                        return;
+                    }
                 }
             }
-            if (bestBlock) break;
         }
-        if (bestBlock) break;
-    }
-    
-    if (bestBlock) {
-        gameState.selectedBlock = bestBlock;
-        gameState.selectedBlock.x = bestX * CONFIG.CELL_SIZE;
-        gameState.selectedBlock.y = bestY * CONFIG.CELL_SIZE;
-        drawBoard();
-        
-        // Снимаем выделение через 2 секунды
-        setTimeout(() => {
-            gameState.selectedBlock = null;
-            drawBoard();
-        }, 2000);
     }
 }
 
-// ============================================
-// УПРАВЛЕНИЕ ИГРОЙ
-// ============================================
 function endGame() {
     gameState.gameOver = true;
-    gameState.elapsedTime = Date.now() - gameState.startTime;
     
     // Обновляем финальные статистики
     document.getElementById('finalScore').textContent = gameState.score;
@@ -598,6 +812,13 @@ function togglePause() {
     gameState.paused = !gameState.paused;
     document.getElementById('pauseBtn').textContent = 
         gameState.paused ? '▶ Продолжить' : '⏸ Пауза';
+    
+    // Блокируем перетаскивание при паузе
+    const blocks = document.querySelectorAll('.draggable-block');
+    blocks.forEach(block => {
+        block.style.pointerEvents = gameState.paused ? 'none' : 'auto';
+        block.style.opacity = gameState.paused ? '0.5' : '1';
+    });
 }
 
 function updateUI() {
@@ -607,107 +828,22 @@ function updateUI() {
 }
 
 // ============================================
-// ОБРАБОТЧИКИ СОБЫТИЙ
+// НАСТРОЙКА ОБРАБОТЧИКОВ СОБЫТИЙ
 // ============================================
 function setupEventListeners() {
-    const canvas = document.getElementById('gameBoard');
-    
-    // Нажатие мыши
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    
-    // Для сенсорных устройств
-    canvas.addEventListener('touchstart', handleTouchStart);
-    canvas.addEventListener('touchmove', handleTouchMove);
-    canvas.addEventListener('touchend', handleTouchEnd);
-    
     // Кнопки управления
-    document.getElementById('rotateBtn').addEventListener('click', () => {
-        if (gameState.selectedBlock) {
-            rotateBlock(gameState.selectedBlock);
-            drawBoard();
-        }
-    });
-    
+    document.getElementById('rotateBtn').addEventListener('click', rotateCurrentBlock);
     document.getElementById('hintBtn').addEventListener('click', showHint);
     document.getElementById('pauseBtn').addEventListener('click', togglePause);
     document.getElementById('restartBtn').addEventListener('click', initGame);
     document.getElementById('playAgainBtn').addEventListener('click', initGame);
     
-    // Запрещаем контекстное меню на canvas
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-}
-
-function handleMouseDown(e) {
-    if (gameState.gameOver || gameState.paused) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    // Проверяем, нажали ли на блок
-    for (const block of gameState.currentBlocks) {
-        if (x >= block.x && x <= block.x + block.width * CONFIG.CELL_SIZE &&
-            y >= block.y && y <= block.y + block.height * CONFIG.CELL_SIZE) {
-            
-            gameState.selectedBlock = block;
-            gameState.isDragging = true;
-            gameState.dragOffset.x = x - block.x;
-            gameState.dragOffset.y = y - block.y;
-            drawBoard();
-            break;
+    // Запрещаем перетаскивание изображений
+    document.addEventListener('dragstart', (e) => {
+        if (e.target.tagName === 'IMG') {
+            e.preventDefault();
         }
-    }
-}
-
-function handleMouseMove(e) {
-    if (!gameState.isDragging || !gameState.selectedBlock) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    
-    gameState.selectedBlock.x = x - gameState.dragOffset.x;
-    gameState.selectedBlock.y = y - gameState.dragOffset.y;
-    drawBoard();
-}
-
-function handleMouseUp() {
-    if (!gameState.isDragging || !gameState.selectedBlock) return;
-    
-    // Преобразуем координаты в клетки поля
-    const boardX = Math.floor(gameState.selectedBlock.x / CONFIG.CELL_SIZE);
-    const boardY = Math.floor(gameState.selectedBlock.y / CONFIG.CELL_SIZE);
-    
-    // Пытаемся разместить блок
-    if (placeBlock(gameState.selectedBlock, boardX, boardY)) {
-        // Успешно разместили
-        gameState.selectedBlock = null;
-    } else {
-        // Не удалось разместить - возвращаем блок на место
-        gameState.selectedBlock.x = 0;
-        gameState.selectedBlock.y = CONFIG.BOARD_SIZE * CONFIG.CELL_SIZE + 20;
-    }
-    
-    gameState.isDragging = false;
-    drawBoard();
-}
-
-// Аналогичные обработчики для touch событий
-function handleTouchStart(e) {
-    e.preventDefault();
-    handleMouseDown(e.touches[0]);
-}
-
-function handleTouchMove(e) {
-    e.preventDefault();
-    handleMouseMove(e.touches[0]);
-}
-
-function handleTouchEnd(e) {
-    e.preventDefault();
-    handleMouseUp();
+    });
 }
 
 // ============================================
@@ -717,9 +853,15 @@ window.onload = function() {
     initGame();
     setupEventListeners();
     
-    // Добавляем CSS для анимации
+    // Добавляем CSS для анимации пульсации
     const style = document.createElement('style');
     style.textContent = `
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+        }
+        
         @keyframes pop {
             0% { transform: scale(0); opacity: 1; }
             50% { transform: scale(1.5); opacity: 0.7; }
