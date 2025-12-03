@@ -11,6 +11,10 @@
             box-sizing: border-box;
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
         }
         
         body {
@@ -20,26 +24,27 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 15px;
+            padding: 10px;
+            overflow-x: hidden;
         }
         
         .game-container {
             background: white;
             border-radius: 20px;
-            padding: 25px;
+            padding: 20px;
             box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
-            max-width: 800px;
+            max-width: 500px;
             width: 100%;
         }
         
         .header {
             text-align: center;
-            margin-bottom: 25px;
+            margin-bottom: 15px;
         }
         
         h1 {
             color: #2d3436;
-            font-size: 36px;
+            font-size: 32px;
             margin-bottom: 5px;
             background: linear-gradient(90deg, #6a11cb, #2575fc);
             -webkit-background-clip: text;
@@ -48,48 +53,50 @@
         
         .subtitle {
             color: #636e72;
-            font-size: 16px;
+            font-size: 14px;
         }
         
         .stats {
             background: #f8f9fa;
             border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
+            padding: 15px;
+            margin-bottom: 15px;
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
+            gap: 10px;
         }
         
         .stat-box {
             text-align: center;
-            padding: 15px;
+            padding: 12px;
             background: white;
             border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.05);
         }
         
         .stat-label {
             color: #636e72;
-            font-size: 14px;
-            margin-bottom: 8px;
+            font-size: 12px;
+            margin-bottom: 6px;
         }
         
         .stat-value {
             color: #2d3436;
-            font-size: 28px;
+            font-size: 24px;
             font-weight: bold;
         }
         
         .game-area {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 15px;
         }
         
         .board-container {
             position: relative;
             margin: 0 auto;
+            width: 100%;
+            max-width: 450px;
         }
         
         #gameBoard {
@@ -98,64 +105,56 @@
             display: block;
             margin: 0 auto;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.1);
+            width: 100%;
+            height: auto;
+            max-width: 450px;
         }
         
-        .current-blocks {
-            background: #f8f9fa;
+        .blocks-container {
+            position: relative;
+            min-height: 120px;
+            margin: 10px 0;
+            padding: 10px;
             border-radius: 15px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: center;
+            background: rgba(248, 249, 250, 0.7);
         }
         
-        .current-blocks-title {
-            color: #2d3436;
-            margin-bottom: 15px;
-            font-size: 18px;
-            font-weight: bold;
-        }
-        
-        .current-blocks-container {
+        #currentBlocksContainer {
             display: flex;
             justify-content: center;
-            gap: 20px;
+            align-items: center;
             flex-wrap: wrap;
-            min-height: 150px;
-            padding: 20px;
+            gap: 15px;
+            min-height: 100px;
         }
         
         .draggable-block {
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
             cursor: grab;
-            transition: all 0.2s ease;
-            border: 3px solid transparent;
-        }
-        
-        .draggable-block:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-            border-color: #6a11cb;
+            transition: transform 0.2s ease;
+            display: inline-block;
         }
         
         .draggable-block.dragging {
-            opacity: 0.7;
             cursor: grabbing;
-            transform: scale(1.05);
+            opacity: 0.8;
+            z-index: 1000;
+        }
+        
+        .block-preview {
+            display: inline-block;
+            position: relative;
         }
         
         .controls {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-top: 20px;
+            gap: 12px;
+            margin-top: 15px;
         }
         
         button {
-            padding: 18px 25px;
-            font-size: 18px;
+            padding: 16px 20px;
+            font-size: 16px;
             font-weight: bold;
             border: none;
             border-radius: 12px;
@@ -164,7 +163,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 10px;
+            gap: 8px;
+            touch-action: manipulation;
         }
         
         #rotateBtn {
@@ -187,13 +187,8 @@
             color: white;
         }
         
-        button:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-        }
-        
         button:active {
-            transform: translateY(1px);
+            transform: scale(0.98);
         }
         
         .game-over {
@@ -203,19 +198,20 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.85);
+            background: rgba(0,0,0,0.9);
             justify-content: center;
             align-items: center;
-            z-index: 1000;
+            z-index: 2000;
+            padding: 20px;
         }
         
         .game-over-content {
             background: white;
-            padding: 40px;
+            padding: 30px;
             border-radius: 20px;
             text-align: center;
-            max-width: 500px;
-            width: 90%;
+            max-width: 400px;
+            width: 100%;
             animation: popup 0.3s ease;
         }
         
@@ -226,44 +222,36 @@
         
         .game-over h2 {
             color: #e74c3c;
-            font-size: 36px;
-            margin-bottom: 20px;
+            font-size: 28px;
+            margin-bottom: 15px;
         }
         
         .final-stats {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
-            margin: 25px 0;
+            gap: 15px;
+            margin: 20px 0;
         }
         
         .final-stat {
             background: #f8f9fa;
-            padding: 15px;
+            padding: 12px;
             border-radius: 10px;
         }
         
         #playAgainBtn {
             background: linear-gradient(135deg, #6a11cb, #2575fc);
             color: white;
-            padding: 20px;
-            font-size: 20px;
+            padding: 18px;
+            font-size: 18px;
             width: 100%;
-            margin-top: 20px;
+            margin-top: 15px;
         }
         
-        @media (max-width: 768px) {
-            .game-area {
-                flex-direction: column;
-            }
-            
-            .stats {
-                grid-template-columns: 1fr;
-            }
-            
-            button {
+        @media (max-width: 500px) {
+            .game-container {
                 padding: 15px;
-                font-size: 16px;
+                margin: 5px;
             }
             
             h1 {
@@ -271,25 +259,35 @@
             }
             
             #gameBoard {
-                width: 350px;
+                width: 100%;
+                max-width: 350px;
                 height: 350px;
+            }
+            
+            .stat-value {
+                font-size: 20px;
+            }
+            
+            button {
+                padding: 14px;
+                font-size: 14px;
             }
         }
         
-        .block-preview {
-            display: inline-block;
-        }
-        
         @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
         }
         
-        @keyframes pop {
-            0% { transform: scale(0); opacity: 1; }
-            50% { transform: scale(1.5); opacity: 0.7; }
-            100% { transform: scale(0); opacity: 0; }
+        .drag-ghost {
+            position: fixed !important;
+            pointer-events: none !important;
+            z-index: 10000 !important;
+            transform: translate(-50%, -50%) !important;
+            opacity: 0.9 !important;
+            filter: drop-shadow(0 5px 15px rgba(0,0,0,0.3)) !important;
+            transition: none !important;
         }
     </style>
 </head>
@@ -297,7 +295,7 @@
     <div class="game-container">
         <div class="header">
             <h1>🧩 BLOCK BLAST</h1>
-            <p class="subtitle">Классическая головоломка • Перетаскивай фигуры на поле</p>
+            <p class="subtitle">Перетаскивай фигуры на поле</p>
         </div>
         
         <div class="stats">
@@ -320,11 +318,10 @@
                 <canvas id="gameBoard" width="450" height="450"></canvas>
             </div>
             
-            <!-- ВАЖНО: Этот блок должен быть ТОЧНО с таким ID -->
-            <div class="current-blocks">
-                <div class="current-blocks-title">ПЕРЕТАЩИ ФИГУРЫ НА ПОЛЕ:</div>
-                <div class="current-blocks-container" id="currentBlocksContainer">
-                    <!-- Фигуры появятся здесь автоматически -->
+            <!-- Упрощенный контейнер для блоков -->
+            <div class="blocks-container">
+                <div id="currentBlocksContainer">
+                    <!-- Блоки будут появляться здесь -->
                 </div>
             </div>
             
@@ -340,7 +337,7 @@
     <div id="gameOverScreen" class="game-over">
         <div class="game-over-content">
             <h2>🎮 ИГРА ОКОНЧЕНА!</h2>
-            <p>Отличная игра! Вот ваши результаты:</p>
+            <p>Вот ваши результаты:</p>
             
             <div class="final-stats">
                 <div class="final-stat">
@@ -365,7 +362,6 @@
         </div>
     </div>
 
-    <!-- ВАЖНО: Убедитесь, что файл называется ТОЧНО blockblast.js -->
     <script src="blockblast.js"></script>
 </body>
 </html>
